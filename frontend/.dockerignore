@@ -1,0 +1,17 @@
+node_modules
+.next
+.env*
+!.env.example
+coverage
+playwright-report
+test-results
+*.tsbuildinfo
+
+.impeccable
+.agents
+.codex
+*.log
+*.sqlite*
+*.dump
+*package-lock.backup.json
+*package-lock.problem.json

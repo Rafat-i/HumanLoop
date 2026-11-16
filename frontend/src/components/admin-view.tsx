@@ -1,0 +1,14 @@
+"use client";
+import Link from "next/link";
+import { useQuery } from "@/lib/query";
+import { api,type User } from "@/lib/api";
+import { Action,Empty,ErrorState,Loading,PageHead } from "@/components/common";
+const sections=["overview","users","workers","tasks","reports","disputes","payments","reviews","audit-logs","settings"];
+export function AdminView({section="overview"}:{section?:string}){
+ const me=useQuery({queryKey:["me"],queryFn:()=>api<User>("/auth/me")});const authorized=!!me.data?.roles.includes("admin");
+ const q=useQuery({queryKey:["admin",section],queryFn:()=>api<Record<string,unknown>[]|Record<string,unknown>>(`/admin/${section}`),enabled:authorized});
+ if(me.isPending)return <div className="container section"><Loading/></div>;
+ if(!authorized)return <div className="container section"><ErrorState error={new Error("Administrator access required")}/></div>;
+ const rows=Array.isArray(q.data)?q.data:[];const preferred:Record<string,string[]>={workers:["display_name","city","category","hourly_rate","available","published","review_status"],tasks:["title","category","city","budget","status","payment_status"],users:["display_name","email","roles","email_verified","suspended"]};const columns=preferred[section]??(rows.length?Object.keys(rows[0]).filter(k=>!["updated_at","created_at","id","bio","description","requirements","details"].includes(k)).slice(0,7):[]);
+ return <div className="container workspace"><aside className="sidebar">{sections.map(s=><Link href={s==="overview"?"/admin":`/admin/${s}`} className={section===s?"active":""} key={s}>{s.replaceAll("-"," ")}</Link>)}</aside><div className="workspace-main"><PageHead eyebrow="Administration" title={section.replaceAll("-"," ")} description="All operations are checked by the backend and recorded in the audit trail."/>{q.isPending?<Loading/>:q.error?<ErrorState error={q.error}/>:section==="overview"?<div className="metric-grid">{Object.entries(q.data??{}).filter(([,v])=>typeof v==="number").map(([k,v])=><div className="card metric" key={k}><span>{k}</span><strong>{String(v)}</strong></div>)}</div>:rows.length?<div className="card table-wrap"><table><thead><tr>{columns.map(c=><th key={c}>{c.replaceAll("_"," ")}</th>)}<th>Actions</th></tr></thead><tbody>{rows.map(row=><tr key={String(row.id)}>{columns.map(c=><td key={c}>{typeof row[c]==="object"?JSON.stringify(row[c]):String(row[c]??"—")}</td>)}<td><div className="stack">{(section==="users"?[row.suspended?"restore":"suspend"]:section==="workers"?["approve","reject"]:section==="tasks"?["hold","cancel"]:section==="reports"?["resolve"]:section==="disputes"?["approve","cancel"]:section==="reviews"?["hide"]:[]).map(action=><Action key={action} path={`/admin/${section}/${row.id}`} data={{action}} confirm={`Apply ${action} to this record?`}>{action}</Action>)}</div></td></tr>)}</tbody></table></div>:<Empty title="No records in this section"/>}</div></div>;
+}

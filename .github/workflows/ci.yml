@@ -1,0 +1,97 @@
+name: Verify HumanLoop
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: humanloop
+          POSTGRES_PASSWORD: local-test-only
+          POSTGRES_DB: humanloop_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U humanloop -d humanloop_test"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      PYTHONPATH: backend
+      DATABASE_URL: postgresql+asyncpg://humanloop:local-test-only@localhost:5432/humanloop_test
+      TEST_DATABASE_URL: postgresql+asyncpg://humanloop:local-test-only@localhost:5432/humanloop_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install -e './backend[dev]'
+      - run: python -m ruff check backend
+      - run: python -m ruff format --check backend
+      - run: python -m alembic -c backend/alembic.ini upgrade head
+      - run: python -m alembic -c backend/alembic.ini check
+      - run: python -m pytest backend/app/tests -q
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run lint
+        working-directory: frontend
+      - run: npm run typecheck
+        working-directory: frontend
+      - run: npm run typecheck:e2e
+        working-directory: frontend
+      - run: npm test
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: humanloop
+          POSTGRES_PASSWORD: local-e2e-only
+          POSTGRES_DB: humanloop_e2e_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U humanloop -d humanloop_e2e_test"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      DATABASE_URL: postgresql+asyncpg://humanloop:local-e2e-only@localhost:5432/humanloop_e2e_test
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: pip install -e './backend[dev]' -r mcp-server/requirements.txt
+      - run: npm ci
+        working-directory: frontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+      - run: python scripts/run_e2e.py
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-diagnostics
+          path: |
+            frontend/test-results/
+            backend-e2e.log
+            frontend-e2e.log
