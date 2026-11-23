@@ -1,24 +1,41 @@
 name: Dependency audit
+
 on:
   workflow_dispatch:
   schedule:
     - cron: '0 9 * * 1'
+
 permissions:
   contents: read
+
 jobs:
   audit:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - run: pip install -e ./backend -r mcp-server/requirements.txt 'pip-audit>=2.9,<3'
-      - run: python -m pip_audit --strict --skip-editable
-      - run: npm ci
+
+      - name: Install Python dependencies
+        run: |
+          pip install -e ./backend -r mcp-server/requirements.txt 'pip-audit>=2.9,<3'
+
+      - name: Audit Python dependencies
+        run: |
+          python -m pip freeze --exclude-editable > python-audit-requirements.txt
+          python -m pip_audit --strict -r python-audit-requirements.txt
+
+      - name: Install frontend dependencies
+        run: npm ci
         working-directory: frontend
-      - run: npm audit --audit-level=high
+
+      - name: Audit frontend dependencies
+        run: npm audit --audit-level=high
         working-directory: frontend
